@@ -1,0 +1,2010 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Distributed System Dashboard</title>
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+    <style>
+      /* 🔥 Optional: Visual indicator when test is running */
+      .action-btn:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+        transform: none !important;
+      }
+      .action-btn.running {
+        background: linear-gradient(
+          135deg,
+          rgba(245, 158, 11, 0.3),
+          rgba(245, 158, 11, 0.15)
+        );
+        border-color: var(--yellow);
+        color: #fde68a;
+        animation: pulseRunning 1.5s ease-in-out infinite;
+      }
+      @keyframes pulseRunning {
+        0%,
+        100% {
+          box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.4);
+        }
+        50% {
+          box-shadow: 0 0 0 8px rgba(245, 158, 11, 0);
+        }
+      }
+      /* 🔥 BASE RESET */
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      /* 🔥 THEME VARIABLES */
+      :root {
+        --bg: #07111f;
+        --card: rgba(255, 255, 255, 0.07);
+        --border: rgba(255, 255, 255, 0.12);
+        --blue: #3b82f6;
+        --green: #22c55e;
+        --yellow: #f59e0b;
+        --orange: #f97316;
+        --red: #ef4444;
+        --purple: #a78bfa;
+        --text: #f8fafc;
+        --muted: #94a3b8;
+      }
+
+      /* 🔥 BODY: Scrollable, min-height 100vh */
+      body {
+        background: radial-gradient(circle at top, #10223d 0%, #07111f 60%);
+        color: var(--text);
+        font-family: Inter, system-ui, sans-serif;
+        min-height: 100vh;
+        overflow-y: auto;
+        overflow-x: hidden;
+      }
+
+      /* 🔥 TOP SECTION: Full viewport height, 2-column grid */
+      .top-section {
+        display: grid;
+        grid-template-columns: 2fr 1fr;
+        gap: 16px;
+        padding: 12px;
+        height: 100vh;
+        min-height: 100vh;
+        box-sizing: border-box;
+      }
+
+      /* 🔥 LEFT: Visualization Only - Full Height */
+      .viz-container {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 20px;
+        padding: 12px;
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+      }
+      .viz-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 8px;
+        padding-bottom: 8px;
+        border-bottom: 1px solid var(--border);
+        flex-shrink: 0;
+      }
+      .viz-title {
+        font-size: 1.1rem;
+        font-weight: 700;
+      }
+      .viz-subtitle {
+        color: var(--muted);
+        font-size: 0.8rem;
+      }
+
+      .topology {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        border-radius: 14px;
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid var(--border);
+        overflow: hidden;
+        padding: 24px;
+        flex: 1;
+      }
+
+      /* 🔥 Load Balancer Core - Compact + Strategy Shortcut */
+      .center-core {
+        position: absolute;
+        left: 50%;
+        top: 16px;
+        transform: translateX(-50%);
+        width: 90px;
+        height: 90px;
+        border-radius: 50%;
+        background: radial-gradient(
+          circle,
+          rgba(59, 130, 246, 0.4),
+          rgba(59, 130, 246, 0.15)
+        );
+        border: 2px solid rgba(59, 130, 246, 0.6);
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        text-align: center;
+        backdrop-filter: blur(16px);
+        box-shadow: 0 0 20px rgba(59, 130, 246, 0.3);
+        animation: pulse 3s infinite;
+        z-index: 5;
+        padding: 6px;
+      }
+      @keyframes pulse {
+        0%,
+        100% {
+          transform: translateX(-50%) scale(1);
+        }
+        50% {
+          transform: translateX(-50%) scale(1.02);
+        }
+      }
+      .lb-title {
+        font-size: 0.7rem;
+        font-weight: 700;
+        margin-bottom: 2px;
+        line-height: 1;
+      }
+      .lb-strategy {
+        color: #93c5fd;
+        font-size: 0.65rem;
+        font-weight: 600;
+        font-family: 'JetBrains Mono', monospace;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+
+      /* 🔥 Worker Cards */
+      .worker {
+        position: absolute;
+        width: 175px;
+        background: rgba(255, 255, 255, 0.06);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 10px;
+        backdrop-filter: blur(14px);
+        transition:
+          transform 0.2s ease,
+          box-shadow 0.2s ease;
+        z-index: 10;
+        min-height: 165px;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        font-size: 0.72rem;
+      }
+      .worker:hover {
+        transform: translateY(-2px);
+        z-index: 15;
+      }
+      .worker.selected {
+        animation: select 0.7s ease-out;
+      }
+
+      @keyframes select {
+        0% {
+          border: 1px solid var(--border); /* Normal state */
+          box-shadow: none;
+          transform: scale(1);
+          background: rgba(255, 255, 255, 0.06);
+        }
+        50% {
+          border: 2px solid var(--blue);
+          box-shadow:
+            0 0 0 3px rgba(59, 130, 246, 0.3),
+            0 0 25px rgba(59, 130, 246, 0.5);
+          transform: scale(1.02);
+          background: rgba(59, 130, 246, 0.08);
+        }
+        100% {
+          border: 1px solid var(--border); /* Return to normal */
+          box-shadow: none;
+          transform: scale(1);
+          background: rgba(255, 255, 255, 0.06);
+        }
+      }
+      .worker.unhealthy {
+        border-color: var(--orange);
+        box-shadow: 0 0 12px rgba(249, 115, 22, 0.4);
+      }
+      .worker.destroyed {
+        border-color: var(--red);
+        opacity: 0.75;
+        background: linear-gradient(
+          135deg,
+          rgba(239, 68, 68, 0.15),
+          rgba(239, 68, 68, 0.05)
+        );
+      }
+      /* .worker.processing {
+        animation: procPulse 1.2s infinite;
+      } */
+      @keyframes procPulse {
+        0%,
+        100% {
+          box-shadow: 0 0 8px rgba(59, 130, 246, 0.2);
+        }
+        50% {
+          box-shadow: 0 0 20px rgba(59, 130, 246, 0.5);
+        }
+      }
+
+      .w-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 8px;
+      }
+      .w-name {
+        font-size: 0.85rem;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        gap: 5px;
+      }
+      .w-led {
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+      }
+      .healthy {
+        background: var(--green);
+        box-shadow: 0 0 6px var(--green);
+      }
+      /* .warning {
+        background: var(--orange);
+        box-shadow: 0 0 6px var(--orange);
+      } */
+      .destroyed-led {
+        background: var(--red);
+        box-shadow: 0 0 6px var(--red);
+        animation: blink 1s infinite;
+      }
+      @keyframes blink {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.4;
+        }
+      }
+
+      .w-stats {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 5px;
+        margin-bottom: 6px;
+      }
+      .w-stat {
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 6px;
+        padding: 4px;
+        text-align: center;
+      }
+      .w-stat-lbl {
+        font-size: 0.55rem;
+        color: var(--muted);
+        text-transform: uppercase;
+        margin-bottom: 1px;
+      }
+      .w-stat-val {
+        font-size: 0.85rem;
+        font-weight: 700;
+      }
+      .w-stat-val.hl {
+        color: var(--blue);
+        text-shadow: 0 0 6px rgba(59, 130, 246, 0.5);
+      }
+      .w-stat-val.ok {
+        color: var(--green);
+      }
+      .w-stat-val.warning {
+        color: var(--orange);
+      }
+      .w-stat-val.danger {
+        color: var(--red);
+      }
+
+      /* 🔥 Telemetry Bars */
+      .w-telemetry {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+        margin-top: 6px;
+      }
+      .telem-row {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        font-size: 0.65rem;
+      }
+      .telem-lbl {
+        width: 30px;
+        color: var(--muted);
+        font-weight: 600;
+      }
+      .telem-bar {
+        flex: 1;
+        height: 5px;
+        background: rgba(255, 255, 255, 0.1);
+        border-radius: 3px;
+        overflow: hidden;
+      }
+      .telem-fill {
+        height: 100%;
+        border-radius: 3px;
+        /* transition: */
+        /* width 0.3s ease, */
+        background: var(--blue); /* Default fallback color */
+      }
+      .telem-val {
+        display: flex;
+        padding-left: 15px;
+        text-align: right;
+        font-family: monospace;
+        font-weight: 700;
+      }
+
+      /* 🔥 Health Score */
+      .w-health {
+        background: rgba(255, 255, 255, 0.03);
+        border-radius: 5px;
+        padding: 4px 6px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-top: 5px;
+        width: 100%;
+      }
+      .w-health-lbl {
+        font-size: 0.5rem;
+        color: var(--muted);
+        text-transform: uppercase;
+      }
+      .w-health-val {
+        font-size: 0.8rem;
+        font-weight: 700;
+        font-family: 'JetBrains Mono', monospace;
+        max-width: 50px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        text-align: right;
+      }
+      .w-health-val.good {
+        color: var(--green);
+      }
+      .w-health-val.warn {
+        color: var(--orange);
+      }
+      .w-health-val.bad {
+        color: var(--red);
+      }
+
+      /* 🔥 Worker Action Buttons */
+      .action-btn-sm {
+        padding: 4px 8px;
+        font-size: 0.65rem;
+        border-radius: 6px;
+        border: none;
+        cursor: pointer;
+        transition: 0.15s;
+        font-weight: 500;
+        margin-top: 6px;
+        width: 100%;
+      }
+      .btn-destroy {
+        background: rgba(239, 68, 68, 0.2);
+        color: #fca5a5;
+        border: 1px solid rgba(239, 68, 68, 0.4);
+      }
+      .btn-destroy:hover {
+        background: rgba(239, 68, 68, 0.35);
+        color: #fecaca;
+      }
+      .btn-fix {
+        background: rgba(34, 197, 94, 0.2);
+        color: #86efac;
+        border: 1px solid rgba(34, 197, 94, 0.4);
+      }
+      .btn-fix:hover {
+        background: rgba(34, 197, 94, 0.35);
+        color: #a7f3d0;
+      }
+
+      /* 🔥 Connection Lines */
+      svg {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+        z-index: 2;
+      }
+      #connections {
+        overflow: hidden;
+        clip-path: inset(0 round 14px);
+      }
+      .line {
+        stroke: rgba(59, 130, 246, 0.25);
+        stroke-width: 1.5;
+        stroke-linecap: round;
+        transition:
+          stroke 0.2s,
+          stroke-width 0.2s;
+      }
+      .line.active {
+        stroke: rgba(59, 130, 246, 0.9);
+        stroke-width: 2.5;
+        filter: drop-shadow(0 0 6px #3b82f6);
+        stroke-dasharray: 6;
+        animation: dash 0.7s linear infinite;
+      }
+      @keyframes dash {
+        to {
+          stroke-dashoffset: -12;
+        }
+      }
+
+      /* 🔥 RIGHT SIDEBAR: Actions + Strategies */
+      .sidebar {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        height: 100%;
+      }
+
+      /* Actions Panel */
+      .actions-panel {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        padding: 14px;
+        flex-shrink: 0;
+      }
+      .action-group {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      .action-btn {
+        background: linear-gradient(
+          135deg,
+          rgba(59, 130, 246, 0.2),
+          rgba(59, 130, 246, 0.1)
+        );
+        border: 1px solid rgba(59, 130, 246, 0.4);
+        color: #93c5fd;
+        padding: 8px 14px;
+        border-radius: 9px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        font-weight: 600;
+        font-size: 0.75rem;
+        text-align: center;
+        flex: 0 0 auto;
+        min-width: 90px;
+      }
+      .action-btn:hover {
+        background: rgba(59, 130, 246, 0.35);
+        border-color: var(--blue);
+        color: var(--text);
+        transform: translateY(-1px);
+      }
+      .action-btn.danger {
+        background: linear-gradient(
+          135deg,
+          rgba(239, 68, 68, 0.2),
+          rgba(239, 68, 68, 0.1)
+        );
+        border: 1px solid rgba(239, 68, 68, 0.4);
+        color: #fca5a5;
+      }
+      .action-btn.danger:hover {
+        background: rgba(239, 68, 68, 0.35);
+        border-color: var(--red);
+        color: #fecaca;
+      }
+
+      /* Strategies Panel - Horizontal Buttons */
+      .strategies-panel {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        padding: 14px;
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+      }
+      .strategies-panel h3 {
+        font-size: 0.85rem;
+        font-weight: 600;
+        margin-bottom: 10px;
+        color: var(--muted);
+        display: flex;
+        align-items: center;
+        gap: 5px;
+      }
+      .strategy-group {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        flex: 1;
+        overflow-y: auto;
+        padding-right: 3px;
+        align-content: flex-start;
+      }
+      .strategy-btn {
+        background: transparent;
+        border: 1px solid var(--border);
+        color: var(--muted);
+        padding: 6px 12px;
+        border-radius: 8px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        font-weight: 500;
+        font-size: 0.7rem;
+        text-align: center;
+        flex: 0 0 auto;
+        min-width: 100px;
+      }
+      .strategy-btn:hover {
+        color: var(--text);
+        border-color: var(--blue);
+        background: rgba(59, 130, 246, 0.1);
+      }
+      .strategy-btn.active {
+        background: rgba(59, 130, 246, 0.25);
+        border-color: var(--blue);
+        color: var(--text);
+        box-shadow: 0 0 12px rgba(59, 130, 246, 0.4);
+      }
+
+      /* 🔥 Modern "NEW" Badge - Dot Variant */
+      .strategy-btn.new-strategy {
+        position: relative;
+        padding-left: 13px !important;
+      }
+      .strategy-btn.new-strategy::before {
+        content: '';
+        position: absolute;
+        left: 3px;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 5px;
+        height: 5px;
+        background: #06b6d4;
+        border-radius: 50%;
+        box-shadow: 0 0 0 2px rgba(6, 182, 212, 0.2);
+      }
+      .strategy-btn.new-strategy.active::before {
+        background: #22c55e;
+        box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.2);
+      }
+      .strategy-btn.new-strategy.active::after {
+        content: '✓';
+        position: absolute;
+        right: 7px;
+        color: #4ade80;
+        font-weight: 700;
+        font-size: 0.65rem;
+      }
+
+      /* 🔥 BOTTOM: Full-Width Logs Panel */
+      .logs-panel-full {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        margin: 0 12px 12px 12px;
+        padding: 14px;
+      }
+      .logs-panel-full h3 {
+        font-size: 0.9rem;
+        font-weight: 600;
+        margin-bottom: 10px;
+        color: var(--muted);
+        display: flex;
+        align-items: center;
+        gap: 5px;
+      }
+      .events {
+        max-height: 200px;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .event {
+        background: rgba(255, 255, 255, 0.04);
+        border-left: 3px solid var(--blue);
+        padding: 6px 8px;
+        border-radius: 6px;
+        animation: fadeIn 0.2s ease;
+        font-size: 0.75rem;
+      }
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+          transform: translateX(-4px);
+        }
+        to {
+          opacity: 1;
+          transform: translateX(0);
+        }
+      }
+      .e-time {
+        color: #93c5fd;
+        font-size: 0.65rem;
+        margin-bottom: 1px;
+        font-family: monospace;
+      }
+      .e-msg {
+        color: var(--text);
+        line-height: 1.25;
+      }
+
+      /* 🔥 Legend Dots - Colored Status */
+      .legend-group {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        padding: 6px 10px;
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        flex-wrap: wrap;
+        margin-top: 8px;
+      }
+      .legend-item {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        font-size: 0.65rem;
+        color: var(--muted);
+        font-weight: 500;
+      }
+      #toggleBehaviorBtn {
+        background: linear-gradient(
+          135deg,
+          rgba(139, 92, 246, 0.2),
+          rgba(139, 92, 246, 0.1)
+        );
+        border: 1px solid rgba(139, 92, 246, 0.4);
+        color: #c4b5fd;
+      }
+      #toggleBehaviorBtn:hover {
+        background: rgba(139, 92, 246, 0.35);
+        border-color: var(--purple);
+        color: var(--text);
+      }
+      #toggleBehaviorBtn.running {
+        animation: pulseRunning 0.3s ease-in-out;
+      }
+      .legend-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        display: inline-block;
+      }
+      .legend-dot.healthy {
+        background: var(--green);
+        box-shadow: 0 0 5px var(--green);
+      }
+      .legend-dot.warning {
+        background: var(--orange);
+        box-shadow: 0 0 5px var(--orange);
+      }
+      .legend-dot.destroyed-led {
+        background: var(--red);
+        box-shadow: 0 0 5px var(--red);
+        animation: blink 1s infinite;
+      }
+
+      /* 🔥 Packet Animations */
+      .pkt {
+        position: absolute;
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        z-index: 20;
+        pointer-events: none;
+      }
+      .pkt.req {
+        background: #3b82f6;
+        box-shadow: 0 0 10px #3b82f6;
+      }
+      .pkt.ok {
+        background: #22c55e;
+        box-shadow: 0 0 10px #22c55e;
+        width: 16px;
+        height: 16px;
+      }
+      .pkt.err {
+        background: #ef4444;
+        box-shadow: 0 0 10px #ef4444;
+        width: 16px;
+        height: 16px;
+      }
+      .pkt.ok i,
+      .pkt.err i {
+        font-size: 0.6rem;
+        color: white;
+      }
+      .pkt.ok::after,
+      .pkt.err::after {
+        content: '';
+        position: absolute;
+        width: 100%;
+        height: 100%;
+        border-radius: 50%;
+        border: 2px solid currentColor;
+        animation: returnRipple 0.5s ease-out forwards;
+        opacity: 0.6;
+      }
+      @keyframes returnRipple {
+        0% {
+          transform: scale(0.5);
+          opacity: 0.6;
+        }
+        100% {
+          transform: scale(2);
+          opacity: 0;
+        }
+      }
+      .trail {
+        position: absolute;
+        width: 5px;
+        height: 5px;
+        border-radius: 50%;
+        opacity: 0.4;
+        pointer-events: none;
+      }
+      @keyframes ripple {
+        0% {
+          transform: scale(0.6);
+          opacity: 1;
+        }
+        100% {
+          transform: scale(4);
+          opacity: 0;
+        }
+      }
+      .ripple {
+        position: absolute;
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+        border: 2px solid #3b82f6;
+        animation: ripple 0.5s linear forwards;
+        pointer-events: none;
+        z-index: 15;
+      }
+
+      /* 🔥 Responsive */
+      @media (max-width: 1000px) {
+        .top-section {
+          grid-template-columns: 1fr;
+          grid-template-rows: auto auto;
+          height: auto;
+          min-height: auto;
+        }
+        .viz-container {
+          min-height: 450px;
+          height: auto;
+        }
+        .sidebar {
+          flex-direction: row;
+          flex-wrap: wrap;
+          height: auto;
+        }
+        .actions-panel,
+        .strategies-panel {
+          flex: 1 1 100%;
+        }
+        .strategy-group {
+          flex-direction: row;
+          flex-wrap: wrap;
+        }
+        .strategy-btn {
+          width: auto;
+          flex: 0 0 auto;
+          min-width: 95px;
+          font-size: 0.68rem;
+          padding: 5px 10px;
+        }
+        .logs-panel-full {
+          margin: 0 8px 8px 8px;
+        }
+      }
+      @media (max-width: 500px) {
+        body {
+          padding: 0;
+        }
+        .top-section {
+          padding: 8px;
+          gap: 10px;
+        }
+        .topology {
+          padding: 18px;
+        }
+        .center-core {
+          width: 80px;
+          height: 80px;
+        }
+        .worker {
+          width: 160px;
+          min-height: 155px;
+          font-size: 0.7rem;
+        }
+        .action-btn {
+          padding: 7px 12px;
+          font-size: 0.7rem;
+          min-width: 85px;
+        }
+        .strategy-btn {
+          font-size: 0.65rem;
+          padding: 4px 8px;
+          min-width: 90px;
+        }
+        .logs-panel-full {
+          margin: 0 4px 4px 4px;
+          padding: 12px;
+        }
+        .events {
+          max-height: 180px;
+        }
+      }
+
+      /* 🔥 Scrollbar */
+      ::-webkit-scrollbar {
+        width: 4px;
+        height: 4px;
+      }
+      ::-webkit-scrollbar-track {
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 2px;
+      }
+      ::-webkit-scrollbar-thumb {
+        background: rgba(59, 130, 246, 0.4);
+        border-radius: 2px;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: rgba(59, 130, 246, 0.6);
+      }
+    </style>
+  </head>
+  <body>
+    <!-- 🔥 TOP: Full Viewport Height Grid -->
+    <div class="top-section">
+      <!-- LEFT: Visualization Only -->
+      <div class="viz-container">
+        <div class="viz-header">
+          <div class="viz-title">Cluster Topology</div>
+          <div class="viz-subtitle">Real-time routing</div>
+        </div>
+        <div class="topology" id="topology">
+          <svg id="connections"></svg>
+          <div class="center-core">
+            <div class="lb-title">LB</div>
+            <div class="lb-strategy" id="lbStrategy">LC</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- RIGHT: Actions + Strategies -->
+      <div class="sidebar">
+        <!-- Actions -->
+        <div class="actions-panel">
+          <div class="action-group">
+            <button class="action-btn" onclick="runTest()">▶ Run</button>
+            <button class="action-btn" onclick="stressTest()">⚡ Stress</button>
+            <button class="action-btn danger" onclick="resetDashboard()">
+              🗑 Reset
+            </button>
+            <button
+              class="action-btn"
+              id="toggleBehaviorBtn"
+              onclick="toggleExecuteBehavior()"
+              title="Toggle execution behavior"
+            >
+              🔄 Normal
+            </button>
+          </div>
+        </div>
+
+        <!-- Strategies (Horizontal Buttons) -->
+        <div class="strategies-panel">
+          <h3>⚙️ Strategies</h3>
+          <div class="strategy-group">
+            <button
+              class="strategy-btn active"
+              data-strategy="least-connections"
+            >
+              Least Conn
+            </button>
+            <button class="strategy-btn" data-strategy="round-robin">
+              Round Robin
+            </button>
+            <button class="strategy-btn" data-strategy="power-of-two">
+              Power of 2
+            </button>
+            <button class="strategy-btn" data-strategy="health-aware">
+              Health
+            </button>
+            <button
+              class="strategy-btn new-strategy"
+              data-strategy="weighted-round-robin"
+            >
+              W-RR
+            </button>
+            <button
+              class="strategy-btn new-strategy"
+              data-strategy="weighted-least-connections"
+            >
+              W-LC
+            </button>
+            <button
+              class="strategy-btn new-strategy"
+              data-strategy="consistent-hashing"
+            >
+              Cons-Hash
+            </button>
+            <button
+              class="strategy-btn new-strategy"
+              data-strategy="sticky-session"
+            >
+              Sticky 🔐
+            </button>
+            <button
+              class="strategy-btn new-strategy"
+              data-strategy="latency-based"
+            >
+              Latency ⚡
+            </button>
+            <button class="strategy-btn new-strategy" data-strategy="adaptive">
+              Adaptive 🧠
+            </button>
+            <button
+              class="strategy-btn new-strategy"
+              data-strategy="resource-aware"
+            >
+              resource Aware ⚙
+            </button>
+            <button
+              class="strategy-btn new-strategy"
+              data-strategy="join-idle-queue"
+            >
+              idle Q
+            </button>
+          </div>
+          <!-- 🔥 Legend Dots (Colored Status) -->
+          <div class="legend-group">
+            <span class="legend-item"
+              ><span class="legend-dot healthy"></span> Healthy</span
+            >
+            <span class="legend-item"
+              ><span class="legend-dot warning"></span> Unhealthy</span
+            >
+            <span class="legend-item"
+              ><span class="legend-dot destroyed-led"></span> Destroyed</span
+            >
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 🔥 BOTTOM: Full-Width Logs Panel -->
+    <div class="logs-panel-full">
+      <h3>📋 Event Stream</h3>
+      <div class="events" id="events">
+        <div class="event">
+          <div class="e-time">--:--:--</div>
+          <div class="e-msg">System ready. Awaiting workers...</div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      let testAbortController = null;
+      let isTestRunning = false;
+
+      function stopRunningTest() {
+        if (isTestRunning && testAbortController) {
+          testAbortController.abort();
+          testAbortController = null;
+          isTestRunning = false;
+          console.log('🛑 Test stopped by user');
+          addEvent('🛑 Test stopped');
+        }
+      }
+
+      const socket = io('http://localhost:3000');
+      let isResetting = false;
+      const topology = document.getElementById('topology');
+      const eventsContainer = document.getElementById('events');
+      const connectionsSvg = document.getElementById('connections');
+      const workers = {};
+      let currentStrategy = 'least-connections';
+      let totalRequests = 0;
+
+      // 🔥 Toggle execution behavior between 'normal' and 'ServiceMeshBehaviors'
+      async function toggleExecuteBehavior() {
+        const btn = document.getElementById('toggleBehaviorBtn');
+        if (!btn) return;
+
+        // Determine current behavior from button text
+        const isNormal = btn.textContent.includes('Normal');
+        const newBehavior = isNormal ? 'ServiceMeshBehavior' : 'normal';
+        const newLabel = isNormal
+          ? '🕸️ Service Mesh Behavior'
+          : '🔄 Normal Behavior';
+
+        try {
+          // Send POST request to backend
+          const res = await fetch('http://localhost:3000/executeBehavior', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ behavior: newBehavior }),
+          });
+
+          if (res.ok) {
+            // Update button label
+            btn.textContent = newLabel;
+            btn.title = `Execution mode: ${newBehavior}`;
+
+            // Visual feedback
+            btn.classList.add('running');
+            setTimeout(() => btn.classList.remove('running'), 300);
+
+            addEvent(`⚙️ Execution mode: ${newBehavior}`);
+          } else {
+            throw new Error('Failed to update behavior');
+          }
+        } catch (err) {
+          console.error('❌ Toggle failed:', err);
+          addEvent(`✗ Failed to toggle mode: ${err.message}`);
+          // Revert button text on error
+          btn.textContent = isNormal ? '🔄 Normal' : '🕸️ Mesh';
+        }
+      }
+      // 🔥 Helper: Get telemetry bar color
+      const getTelemColor = (val) => {
+        if (!val) return 'var(--muted)';
+        if (val < 50) return '#22c55e';
+        if (val < 80) return '#f59e0b';
+        return '#ef4444';
+      };
+
+      // Strategy shortcuts for LB display
+      const strategyShortcuts = {
+        'least-connections': 'LC',
+        'round-robin': 'RR',
+        'power-of-two': 'P2',
+        'health-aware': 'HA',
+        'weighted-round-robin': 'WRR',
+        'weighted-least-connections': 'WLC',
+        'consistent-hashing': 'CH',
+        'sticky-session': 'SS',
+        'latency-based': 'LB',
+        adaptive: 'AD',
+      };
+
+      // 🔥 Sync initial state from backend on page load
+      // 🔥 Sync initial state from backend on page load
+      async function syncInitialState() {
+        try {
+          // 🔥 Use /process_info endpoint (returns workers + current strategy)
+          const res = await fetch('http://localhost:3000/process_info');
+          const data = await res.json();
+
+          // 🔥 Sync workers
+          if (Array.isArray(data.workers)) {
+            data.workers.forEach((w) => {
+              if (!workers[w.name]) {
+                workers[w.name] = {
+                  ...w,
+                  selected: false,
+                  activeConnections: w.activeConnections ?? 0,
+                  totalRequests: w.totalRequests ?? 0,
+                  failedRequests: w.failedRequests ?? 0,
+                  lastResponseTime: w.lastResponseTime ?? 0,
+                  isHealthy: w.isHealthy !== false,
+                  isDestroyed: w.isDestroyed ?? false,
+                  cpuUsage: w.cpuUsage ?? 0,
+                  memoryUsage: w.memoryUsage ?? 0,
+                  adaptiveScore: w.adaptiveScore ?? 0,
+                  healthScore: w.healthScore ?? 0,
+                  computedWeight: w.computedWeight ?? 1,
+                  currentLoadRatio: w.currentLoadRatio ?? 0,
+                  smoothedLatency: w.smoothedLatency ?? 0,
+                };
+                renderWorker(workers[w.name]);
+              }
+            });
+          }
+
+          // 🔥 Sync current strategy (prevents reset to default on refresh)
+          if (data.strategy) {
+            currentStrategy = data.strategy;
+            document.querySelectorAll('.strategy-btn').forEach((btn) => {
+              btn.classList.toggle(
+                'active',
+                btn.dataset.strategy === currentStrategy,
+              );
+            });
+            document.getElementById('lbStrategy').innerText =
+              strategyShortcuts[currentStrategy] ||
+              currentStrategy.slice(0, 2).toUpperCase();
+          }
+
+          if (data.executeBehavior) {
+            const btn = document.getElementById('toggleBehaviorBtn');
+            if (btn) {
+              const isNormal = data.executeBehavior === 'normal';
+              btn.textContent = isNormal
+                ? '🔄 Normal Behavior'
+                : '🕸️ Service Mesh Behavior';
+              btn.title = `Execution mode: ${data.executeBehavior}`;
+            }
+          }
+          positionWorkers();
+          addEvent(
+            `🔄 Synced ${Object.keys(workers).length} workers from backend`,
+          );
+        } catch (err) {
+          console.log('⚠️ Backend sync failed:', err.message);
+          addEvent('⚠️ Could not sync with backend');
+        }
+      }
+      // 🔥 Position worker cards in topology
+      function positionWorkers() {
+        const list = Object.values(workers);
+        if (list.length === 0) return;
+        const rect = topology.getBoundingClientRect();
+        const wW = 175,
+          wH = 165,
+          gap = 10,
+          pad = 20;
+        const lbY = 110;
+        const usableHeight = rect.height - 140;
+        const availW = rect.width - pad * 2;
+        const maxPerRow = Math.max(1, Math.floor(availW / (wW + gap)));
+
+        list.forEach((w, i) => {
+          const card = document.getElementById(w.name);
+          if (!card) return;
+          const row = Math.floor(i / maxPerRow);
+          const col = i % maxPerRow;
+          const inRow = Math.min(list.length - row * maxPerRow, maxPerRow);
+          const rowW = inRow * wW + (inRow - 1) * gap;
+          const startX = (rect.width - rowW) / 2;
+          const x = startX + col * (wW + gap);
+          const y = lbY + 130 + row * (wH + gap);
+          const margin = 3;
+          card.style.left = `${Math.max(pad + margin, Math.min(x, rect.width - wW - pad - margin))}px`;
+          card.style.top = `${Math.max(pad + margin, Math.min(y, usableHeight - wH - margin))}px`;
+        });
+        setTimeout(redrawConnections, 30);
+      }
+
+      function redrawConnections() {
+        connectionsSvg.innerHTML = '';
+        const lbEl = document.querySelector('.center-core');
+        if (!lbEl) return;
+        const topologyRect = topology.getBoundingClientRect();
+        const lbRect = lbEl.getBoundingClientRect();
+        const lbX = lbRect.left + lbRect.width / 2 - topologyRect.left;
+        const lbY = lbRect.bottom - topologyRect.top - 3;
+
+        Object.values(workers).forEach((w) => {
+          const card = document.getElementById(w.name);
+          if (!card) return;
+          const cardRect = card.getBoundingClientRect();
+          const workerX =
+            cardRect.left + cardRect.width / 2 - topologyRect.left;
+          const workerY = cardRect.top - topologyRect.top + 3;
+          const line = document.createElementNS(
+            'http://www.w3.org/2000/svg',
+            'line',
+          );
+          line.setAttribute('x1', lbX);
+          line.setAttribute('y1', lbY);
+          line.setAttribute('x2', workerX);
+          line.setAttribute('y2', workerY);
+          line.setAttribute('class', 'line');
+          line.setAttribute('id', `line-${w.name}`);
+          connectionsSvg.appendChild(line);
+        });
+      }
+
+      let resizeTimeout;
+      window.addEventListener('resize', () => {
+        clearTimeout(resizeTimeout);
+        resizeTimeout = setTimeout(() => {
+          positionWorkers();
+          redrawConnections();
+        }, 80);
+      });
+
+      window.addEventListener('load', () => {
+        setTimeout(() => {
+          positionWorkers();
+          redrawConnections();
+          syncInitialState();
+        }, 60);
+      });
+
+      isResetting = true;
+      setTimeout(() => (isResetting = false), 600);
+
+      async function resetDashboard() {
+        stopRunningTest();
+        isResetting = true;
+        clearAllAnimations();
+
+        try {
+          await fetch('http://localhost:3000/reset', { method: 'POST' });
+
+          window.location.reload();
+        } catch (err) {
+          console.error('❌ Reset failed:', err);
+          addEvent('✗ Reset failed - try again');
+          isResetting = false;
+        }
+      }
+      // 🔥 Clear all visual animations
+      function clearAllAnimations() {
+        document
+          .querySelectorAll('.pkt, .trail, .ripple')
+          .forEach((el) => el.remove());
+        document.querySelectorAll('.line.active').forEach((line) => {
+          line.classList.remove('active');
+          line.style.animation = 'none';
+        });
+        document
+          .querySelectorAll('.worker.selected, .worker.processing')
+          .forEach((card) => {
+            card.classList.remove('selected', 'processing');
+          });
+      }
+
+      // 🔥 Add event to log panel
+      function addEvent(msg) {
+        const e = document.createElement('div');
+        e.className = 'event';
+        const t = new Date().toLocaleTimeString();
+        e.innerHTML = `<div class="e-time">${t}</div><div class="e-msg">${msg}</div>`;
+        eventsContainer.prepend(e);
+        if (eventsContainer.children.length > 40)
+          eventsContainer.lastChild.remove();
+      }
+
+      // 🔥 Animate packet (request/response) between LB and worker
+      function animatePacket(name, type = 'req') {
+        let attempts = 0;
+        const maxAttempts = 6;
+
+        function tryAnimate() {
+          const card = document.getElementById(name);
+          const lb = document.querySelector('.center-core');
+          if (!card || !lb) {
+            if (attempts < maxAttempts) {
+              attempts++;
+              setTimeout(tryAnimate, 50);
+              return;
+            }
+            console.warn(
+              `⚠️ Could not animate packet for ${name}: card or LB not found`,
+            );
+            return;
+          }
+
+          const rect = topology.getBoundingClientRect();
+          const lbR = lb.getBoundingClientRect();
+          const cR = card.getBoundingClientRect();
+          const sx = lbR.left - rect.left + lbR.width / 2;
+          const sy = lbR.top - rect.top + lbR.height / 2;
+          const ex = cR.left - rect.left + cR.width / 2;
+          const ey = cR.top - rect.top + cR.height / 2;
+
+          const pkt = document.createElement('div');
+          pkt.className = `pkt ${type}`;
+          if (type === 'req') pkt.textContent = '?';
+          else if (type === 'ok')
+            pkt.innerHTML = '<i class="fas fa-check"></i>';
+          else if (type === 'err')
+            pkt.innerHTML = '<i class="fas fa-times"></i>';
+          topology.appendChild(pkt);
+
+          let p = 0;
+          const dur = type === 'req' ? 600 : 800;
+          const rev = type === 'ok' || type === 'err';
+          const fx = rev ? ex : sx,
+            fy = rev ? ey : sy;
+          const tx = rev ? sx : ex,
+            ty = rev ? sy : ey;
+
+          function frame() {
+            p += 16 / dur;
+            if (p >= 1) {
+              pkt.remove();
+              createRipple(rev ? sx : ex, rev ? sy : ey, type);
+              return;
+            }
+            const e = 1 - Math.pow(1 - p, 3);
+            pkt.style.left = `${fx + (tx - fx) * e - (type === 'req' ? 5 : 8)}px`;
+            pkt.style.top = `${fy + (ty - fy) * e - (type === 'req' ? 5 : 8)}px`;
+            createTrail(fx + (tx - fx) * e, fy + (ty - fy) * e, type);
+            requestAnimationFrame(frame);
+          }
+          frame();
+        }
+        tryAnimate();
+      }
+
+      function createTrail(x, y, t) {
+        const d = document.createElement('div');
+        d.className = 'trail';
+        d.style.background =
+          t === 'req' ? '#3b82f6' : t === 'ok' ? '#22c55e' : '#ef4444';
+        d.style.left = `${x - 2.5}px`;
+        d.style.top = `${y - 2.5}px`;
+        topology.appendChild(d);
+        setTimeout(() => d.remove(), 200);
+      }
+
+      function createRipple(x, y, t) {
+        const d = document.createElement('div');
+        d.className = 'ripple';
+        if (t === 'ok') d.style.borderColor = '#22c55e';
+        if (t === 'err') d.style.borderColor = '#ef4444';
+        d.style.left = `${x - 7}px`;
+        d.style.top = `${y - 7}px`;
+        topology.appendChild(d);
+        setTimeout(() => d.remove(), 500);
+      }
+
+      // 🔥 Render worker card with all stats
+      function renderWorker(w) {
+        let c = document.getElementById(w.name);
+        if (!c) {
+          c = document.createElement('div');
+          c.className = 'worker';
+          c.id = w.name;
+          topology.appendChild(c);
+        }
+        let stateClass = '';
+        if (w.isDestroyed) stateClass = 'destroyed';
+        else if (!w.isHealthy) stateClass = 'unhealthy';
+        else if (w.activeConnections > 0) stateClass = 'processing';
+        c.className = `worker ${stateClass}`;
+        if (w.selected) c.classList.add('selected');
+        let ledClass = w.isHealthy ? 'healthy' : 'warning';
+        if (w.isDestroyed) ledClass = 'destroyed-led';
+
+        c.innerHTML = `
+        <div class="w-header">
+  <div class="w-name"><i class="fas fa-server"></i>${w.name}</div>
+  <div class="w-led ${ledClass}"></div>
+</div>
+<div style="color: #94a3b8; margin-bottom: 6px; font-size: 0.7rem">
+  Port ${w.port}
+</div>
+<div class="w-stats">
+  <div class="w-stat">
+    <div class="w-stat-lbl">Active</div>
+    <div class="w-stat-val hl">${w.activeConnections || 0}</div>
+  </div>
+  <div class="w-stat">
+    <div class="w-stat-lbl">Total</div>
+    <div class="w-stat-val">${w.totalRequests || 0}</div>
+  </div>
+  <div class="w-stat">
+    <div class="w-stat-lbl">Failed</div>
+    <div class="w-stat-val ${w.failedRequests > 0 ? 'danger' : ''}">
+      ${w.failedRequests || 0}
+    </div>
+  </div>
+  <div class="w-stat">
+    <div class="w-stat-lbl">Latency</div>
+    <div
+      class="w-stat-val ${w.smoothedLatency > 1000 ? 'danger' : w.smoothedLatency > 300 ? 'warning' : 'ok'}"
+    >
+      ${w.smoothedLatency || 0}ms
+    </div>
+  </div>
+</div>
+<div class="w-stats" style="margin-top: 4px">
+  <div class="w-stat">
+    <div class="w-stat-lbl">Weight</div>
+    <div class="w-stat-val">${w.weight || 1}</div>
+  </div>
+  <div class="w-stat">
+    <div class="w-stat-lbl">Ratio</div>
+    <div
+      class="w-stat-val ${(w.currentLoadRatio || 0) > 1 ? 'danger' : (w.currentLoadRatio || 0) > 0.7 ? 'warning' : 'ok'}"
+    >
+      ${w.currentLoadRatio?.toFixed(2)}
+    </div>
+  </div>
+</div>
+<div class="w-telemetry">
+  <div class="telem-row">
+    <span class="telem-lbl">CPU</span>
+    <div class="telem-bar">
+      <div
+        class="telem-fill"
+        style="width:${w.cpuUsage?.toFixed(2) || 0}%;background:${getTelemColor(w.cpuUsage)}"
+      ></div>
+    </div>
+    <span class="telem-val">${w.cpuUsage?.toFixed(0) || 0}%</span>
+  </div>
+  <div class="telem-row">
+    <span class="telem-lbl">RAM</span>
+    <div class="telem-bar">
+      <div
+        class="telem-fill"
+        style="width:${w.memoryUsage?.toFixed(2) || 0}%;background:${getTelemColor(w.memoryUsage)}"
+      ></div>
+    </div>
+    <span class="telem-val">${w.memoryUsage?.toFixed(0) || 0}%</span>
+  </div>
+   <div class="telem-row">
+    <span class="telem-lbl">Resource</span>
+    <span
+      class="telem-val"
+      style="color:${(w.resourceScore || 0) < 30 ? 'var(--green)' : (w.resourceScore || 0) < 60 ? 'var(--orange)' : 'var(--red)'}"
+    >
+      ${w.resourceScore?.toFixed(1) || '—'}
+    </span>
+  </div>
+  <div class="telem-row">
+    <span class="telem-lbl">Adaptive</span>
+    <span
+      class="telem-val"
+      style="color:${(w.adaptiveScore || 0) < 30 ? 'var(--green)' : (w.adaptiveScore || 0) < 60 ? 'var(--orange)' : 'var(--red)'}"
+    >
+      ${w.adaptiveScore?.toFixed(1) || '—'}
+    </span>
+  </div>
+
+</div>
+<div class="w-health">
+  <span class="w-health-lbl">Health</span>
+  <span
+    class="w-health-val ${w.healthScore < 30 ? 'good' : w.healthScore < 70 ? 'warn' : 'bad'}"
+    >${w.healthScore != null ? w.healthScore?.toFixed(1) : '—'}</span
+  >
+</div>
+
+${
+  w.isDestroyed
+    ? `<button
+  class="action-btn-sm btn-fix"
+  onclick="fixWorker('${w.port}')"
+>
+  🔧 Fix</button
+>`
+    : `<button
+  class="action-btn-sm btn-destroy"
+  onclick="destroyWorker('${w.port}')"
+>
+  💥 Destroy</button
+>`
+}
+
+        `;
+        setTimeout(() => {
+          positionWorkers();
+          redrawConnections();
+        }, 8);
+      }
+
+      // 🔥 Destroy worker via backend API
+      async function destroyWorker(port) {
+        try {
+          await fetch(`http://localhost:3000/destroy/${port}`, {
+            method: 'POST',
+          });
+          addEvent(`💥 ${port} destroyed`);
+        } catch (e) {
+          addEvent(`✗ Failed to destroy ${port}`);
+        }
+      }
+
+      // 🔥 Fix worker via backend API
+      async function fixWorker(port) {
+        try {
+          await fetch(`http://localhost:3000/register`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ port, port: workers[port]?.port || 4001 }),
+          });
+          addEvent(`🔧 ${port} restored`);
+        } catch (e) {
+          addEvent(`✗ Failed to fix ${port}`);
+        }
+      }
+
+      // 🔥 Clear all worker selections
+      function clearSelections() {
+        Object.values(workers).forEach((w) => {
+          w.selected = false;
+          renderWorker(w);
+        });
+        document
+          .querySelectorAll('.line')
+          .forEach((l) => l.classList.remove('active'));
+      }
+
+      // 🔥 Highlight selected worker with blue border + pulse
+      // 🔥 Highlight selected worker with blue border + pulse (forces animation replay)
+      function highlightWorker(n) {
+        clearSelections(); // Clear other workers' selection
+        const w = workers[n];
+        if (!w) return;
+
+        const card = document.getElementById(n);
+        if (!card) return;
+
+        // 🔥 Force animation replay: remove class, then re-add after a tiny delay
+        card.classList.remove('selected');
+
+        // Use requestAnimationFrame to ensure the removal is processed before re-adding
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            w.selected = true;
+            card.classList.add('selected');
+
+            // Optional: auto-remove selection after animation completes (700ms)
+            setTimeout(() => {
+              if (w.selected) {
+                w.selected = false;
+                card.classList.remove('selected');
+              }
+            }, 700); // Match your CSS animation duration
+          });
+        });
+
+        // Highlight connection line
+        const line = document.getElementById(`line-${n}`);
+        if (line) line.classList.add('active');
+      }
+      // 🔥 WebSocket event handler — UNIFIED CASES WITH FULL WORKER OBJECTS
+      socket.on('connect', () => addEvent('✓ Connected'));
+
+      socket.on('log', (ev) => {
+        // 🔥 Skip events during reset (except register/reregister)
+        if (isResetting && !['register', 'reregister'].includes(ev.type))
+          return;
+
+        switch (ev.type) {
+          // ============================================================
+          // 🔹 WORKER LIFECYCLE EVENTS
+          // ============================================================
+          case 'register':
+            // ev.worker = full WorkerNode object from backend
+            workers[ev.worker.name] = { ...ev.worker, selected: false };
+            renderWorker(workers[ev.worker.name]); // ✅ Update card
+            addEvent(
+              `✓ ${ev.worker.name} ${ev.type === 'reregister' ? 'restored' : 'registered'} (port ${ev.worker.port})`,
+            );
+            break;
+          case 'state':
+            // 🔥 UNIFIED: Handle ALL worker metric updates here
+            // ev.worker = full WorkerNode with updated metrics
+            if (workers[ev.worker.name]) {
+              // Merge ALL fields from backend worker object (safe and simple)
+              Object.assign(workers[ev.worker.name], ev.worker);
+              renderWorker(workers[ev.worker.name]);
+            }
+            break;
+
+          case 'destroyed':
+            // ev.worker = full WorkerNode object with isDestroyed=true
+            if (workers[ev.worker.name]) {
+              Object.assign(workers[ev.worker.name], ev.worker); // ✅ Merge all fields
+              renderWorker(workers[ev.worker.name]); // ✅ Update card
+              addEvent(`💥 ${ev.worker.name} destroyed`);
+            }
+            break;
+
+          case 'fixed':
+            // ev.worker = full WorkerNode object with isDestroyed=false, isHealthy=true
+            if (workers[ev.worker.name]) {
+              Object.assign(workers[ev.worker.name], ev.worker); // ✅ Merge all fields
+              renderWorker(workers[ev.worker.name]); // ✅ Update card
+              addEvent(`🔧 ${ev.worker.name} restored`);
+            }
+            break;
+
+          case 'reset':
+            // Reset all workers to initial state
+            Object.values(workers).forEach((w) => {
+              w.activeConnections = 0;
+              w.failedRequests = 0;
+              w.lastResponseTime = 0;
+              w.totalRequests = 0;
+              w.isHealthy = true;
+              w.isDestroyed = false;
+              renderWorker(w); // ✅ Update all cards
+            });
+            totalRequests = 0;
+            addEvent(`🔄 All stats reset`);
+            break;
+
+          // ============================================================
+          // 🔹 STRATEGY EVENTS
+          // ============================================================
+          case 'strategy':
+            currentStrategy = ev.strategy;
+            document.querySelectorAll('.strategy-btn').forEach((b) => {
+              b.classList.remove('active');
+              if (b.dataset.strategy === ev.strategy) b.classList.add('active');
+            });
+            document.getElementById('lbStrategy').innerText =
+              strategyShortcuts[ev.strategy] ||
+              ev.strategy.slice(0, 2).toUpperCase();
+            addEvent(`⚙ Strategy: ${ev.strategy}`);
+            break;
+
+          // ============================================================
+          // 🔹 REQUEST LIFECYCLE EVENTS — ALL UPDATE WORKER CARD
+          // ============================================================
+          case 'selected':
+            // ev.worker = full WorkerNode that was selected for routing
+            if (workers[ev.worker.name]) {
+              Object.assign(workers[ev.worker.name], ev.worker); // ✅ Merge updated fields (e.g., activeConnections++)
+              renderWorker(workers[ev.worker.name]); // ✅ Update card immediately
+            }
+            highlightWorker(ev.worker.name);
+            animatePacket(ev.worker.name, 'req'); // Blue packet LB → worker
+            addEvent(`→ Routed to ${ev.worker.name} (${ev.strategy})`);
+            break;
+
+          case 'response':
+            // ev.worker = full WorkerNode after successful processing
+            if (workers[ev.worker.name]) {
+              Object.assign(workers[ev.worker.name], ev.worker); // ✅ Merge ALL updated fields (activeConnections--, latency, etc.)
+              renderWorker(workers[ev.worker.name]); // ✅ Update card immediately
+            }
+            animatePacket(ev.worker.name, 'ok'); // Green packet worker → LB
+            totalRequests++;
+            // highlightWorker(ev.worker.name);
+            addEvent(
+              `✓ ${ev.worker.name}: ${ev.payload.a} ${ev.payload.op} ${ev.payload.b} = ${ev.result?.result}`,
+            );
+            updateMetrics();
+            break;
+
+          case 'error':
+            // ev.worker = full WorkerNode (if available)
+            if (ev.worker?.name) {
+              if (workers[ev.worker.name]) {
+                Object.assign(workers[ev.worker.name], ev.worker); // ✅ Merge ALL updated fields (failedRequests++, isHealthy=false, etc.)
+                renderWorker(workers[ev.worker.name]); // ✅ Update card immediately
+              }
+              animatePacket(ev.worker.name, 'err'); // Red packet worker → LB
+              addEvent(`✗ Error on ${ev.worker.name}: ${ev.error}`);
+            } else {
+              addEvent(`❌ Request failed: ${ev.error}`);
+            }
+            break;
+
+          case 'request_sent':
+            // Optional: Visual feedback that request is in flight
+            addEvent(`📤 Sent to port ${ev.port}/${ev.pattern}`);
+            // Note: No worker object here, so no card update needed
+            const workerByPort = Object.values(workers).find(
+              (w) => w.port === ev.port,
+            );
+            if (workerByPort) {
+              const card = document.getElementById(workerByPort.name);
+              if (card) {
+                card.classList.add('in-flight');
+                setTimeout(() => card.classList.remove('in-flight'), 800);
+              }
+            }
+            break;
+
+          // ============================================================
+          // 🔹 FUTURE EVENT TYPES — AUTO-UPDATE IF WORKER INCLUDED
+          // ============================================================
+          default:
+            // 🔥 Auto-update card if event includes a worker object
+            if (ev.worker?.name && workers[ev.worker.name]) {
+              Object.assign(workers[ev.worker.name], ev.worker); // ✅ Merge all fields
+              renderWorker(workers[ev.worker.name]); // ✅ Update card
+              console.log(
+                `🔄 Auto-updated ${ev.worker.name} for event: ${ev.type}`,
+              );
+            } else {
+              console.warn('⚠️ Unknown event type:', ev.type);
+            }
+            break;
+        }
+      });
+      // 🔥 Update metrics display (total requests, healthy workers, etc.)
+      function updateMetrics() {
+        const healthyCount = Object.values(workers).filter(
+          (w) => w.isHealthy && !w.isDestroyed,
+        ).length;
+        document.getElementById('healthyWorkers').innerText = healthyCount;
+        document.getElementById('totalRequests').innerText = totalRequests;
+        // Add more metrics as needed
+      }
+
+      // 🔥 Stress test: send many requests rapidly
+      async function stressTest() {
+        if (isTestRunning) {
+          addEvent('⚠️ Test already running');
+          return;
+        }
+        testAbortController = new AbortController();
+        isTestRunning = true;
+        let wasAborted = false;
+
+        document.querySelectorAll('.action-btn').forEach((btn) => {
+          if (
+            btn.textContent.includes('Run') ||
+            btn.textContent.includes('Stress')
+          ) {
+            btn.classList.add('running');
+            btn.disabled = true;
+          }
+        });
+
+        const URL = 'http://localhost:3000/calculate';
+        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+        const requests = [
+          {
+            a: 105,
+            b: 53,
+            op: 'add',
+            sessionId: 'session-abc',
+            hashKey: 'user-alice_585858',
+          },
+          {
+            a: 560,
+            b: 63,
+            op: 'sub',
+            sessionId: 'session-111',
+            hashKey: 'user-charlie_user_hash',
+          },
+          {
+            a: 350,
+            b: 22,
+            op: 'mul',
+            sessionId: 'session-xyz',
+            hashKey: 'user-bob',
+          },
+          {
+            a: 250,
+            b: 42,
+            op: 'sub',
+            sessionId: 'session-abc',
+            hashKey: 'user-alice',
+          },
+          {
+            a: 200,
+            b: 12,
+            op: 'mul',
+            sessionId: 'session-abc',
+            hashKey: 'user-alice',
+          },
+          {
+            a: 165,
+            b: 60,
+            op: 'add',
+            sessionId: 'session-xyz',
+            hashKey: 'user-bob_boob525259',
+          },
+          {
+            a: 146,
+            b: 91,
+            op: 'mul',
+            sessionId: 'session-111',
+            hashKey: 'user-charlie',
+          },
+          { a: 265, b: 42, op: 'add' },
+          { a: 400, b: 15, op: 'sub' },
+          {
+            a: 350,
+            b: 52,
+            op: 'mul',
+            sessionId: 'session-abc',
+            hashKey: 'user-alice_alice86498',
+          },
+          {
+            a: 305,
+            b: 93,
+            op: 'add',
+            sessionId: 'session-258',
+            hashKey: 'user-ali',
+          },
+          { a: 460, b: 53, op: 'sub' },
+          {
+            a: 100,
+            b: 33,
+            op: 'sub',
+            sessionId: 'session-596',
+            hashKey: 'user-ali_ali_8555',
+          },
+        ];
+
+        addEvent('⚡ Stress test started');
+
+        try {
+          for (let i = 0; i < requests.length; i++) {
+            if (!isTestRunning) {
+              wasAborted = true;
+              break;
+            }
+            fetch(URL, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(requests[i]),
+            }).catch(() => {});
+            await sleep(400);
+          }
+        } catch (e) {
+          if (e.name !== 'AbortError') console.error('Stress test error:', e);
+          wasAborted = true;
+        } finally {
+          isTestRunning = false;
+          testAbortController = null;
+          document.querySelectorAll('.action-btn').forEach((btn) => {
+            btn.classList.remove('running');
+            btn.disabled = false;
+          });
+          if (!wasAborted) addEvent('✅ Stress test completed');
+        }
+      }
+
+      // 🔥 Strategy button click handler
+      document.querySelectorAll('.strategy-btn').forEach((b) =>
+        b.addEventListener('click', async () => {
+          const s = b.dataset.strategy;
+          if (!s) return;
+          try {
+            await fetch('http://localhost:3000/strategy', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ strategy: s }),
+            });
+          } catch (e) {}
+        }),
+      );
+
+      // 🔥 Run basic test: send 3 requests with delays
+      async function runTest() {
+        if (isTestRunning) {
+          addEvent('⚠️ Test already running');
+          return;
+        }
+        testAbortController = new AbortController();
+        isTestRunning = true;
+        let wasAborted = false;
+
+        document.querySelectorAll('.action-btn').forEach((btn) => {
+          if (
+            btn.textContent.includes('Run') ||
+            btn.textContent.includes('Stress')
+          ) {
+            btn.classList.add('running');
+            btn.disabled = true;
+          }
+        });
+
+        const URL = 'http://localhost:3000/calculate';
+        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+        const requests = [
+          {
+            a: 10,
+            b: 5,
+            op: 'add',
+            sessionId: 'session-abc',
+            hashKey: 'user-charlie_hashKey',
+          },
+          {
+            a: 20,
+            b: 4,
+            op: 'sub',
+            sessionId: 'session-abc',
+            hashKey: 'user-alice',
+          },
+          {
+            a: 25,
+            b: 4,
+            op: 'add',
+            sessionId: 'session-111',
+            hashKey: 'user-charlie',
+          },
+          {
+            a: 15,
+            b: 6,
+            op: 'add',
+            sessionId: 'session-xyz',
+            hashKey: 'user-bob',
+          },
+          {
+            a: 30,
+            b: 2,
+            op: 'mul',
+            sessionId: 'session-abc',
+            hashKey: 'user-alice_alice_alice_5555',
+          },
+          {
+            a: 50,
+            b: 3,
+            op: 'sub',
+            sessionId: 'session-xyz',
+            hashKey: 'user-bob_nine',
+          },
+          {
+            a: 16,
+            b: 9,
+            op: 'mul',
+            sessionId: 'session-abc',
+            hashKey: 'user-alice',
+          },
+          {
+            a: 40,
+            b: 5,
+            op: 'sub',
+            sessionId: 'session-111',
+            hashKey: 'user-charlie_585858',
+          },
+          { a: 90, b: 29, op: 'mul' },
+        ];
+
+        addEvent('🚀 Test started');
+
+        try {
+          for (let i = 0; i < requests.length; i++) {
+            if (!isTestRunning) {
+              wasAborted = true;
+              break;
+            }
+            console.log(
+              `[${i + 1}] ➡️ ${requests[i].a} ${requests[i].op} ${requests[i].b}`,
+            );
+            fetch(URL, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(requests[i]),
+            }).catch(() => {});
+            await sleep(1500);
+          }
+        } catch (e) {
+          if (e.name !== 'AbortError') console.error('Test error:', e);
+          wasAborted = true;
+        } finally {
+          isTestRunning = false;
+          testAbortController = null;
+          if (!testAbortController?.signal.aborted)
+            addEvent('✅ Test completed');
+          document.querySelectorAll('.action-btn').forEach((btn) => {
+            btn.classList.remove('running');
+            btn.disabled = false;
+          });
+          if (!wasAborted) addEvent('✅ Test completed');
+        }
+      }
+    </script>
+  </body>
+</html>
