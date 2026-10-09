@@ -4,6 +4,8 @@ A hands-on simulation of a **distributed load balancing system**, built with **N
 
 This project was built to explore how real load balancers make routing decisions (round robin, least connections, consistent hashing, adaptive scoring, etc.), and to visualize resilience patterns like **circuit breakers**, **retries**, **timeouts**, and **health checks** in action.
 
+![Dashboard](screenshot/Dashboard.webp)
+
 > 💡 Not intended for production use — this is an educational / portfolio simulation of load balancing concepts.
 
 ---
@@ -33,8 +35,6 @@ The system is made up of three moving parts:
 1. **Load Balancer (LB)** — a NestJS app that registers workers, exposes a REST API, picks a worker for every incoming request according to the currently selected strategy, and streams everything happening internally over WebSockets.
 2. **Worker(s)** — lightweight NestJS microservices that simulate doing "work" (basic math operations), report CPU/RAM telemetry, and randomly fail or slow down to give the load balancer something interesting to react to.
 3. **Dashboard** — a single static `dashboard.html` file (no build step) that visualizes the whole cluster in real time: worker cards, live request routing animations, health/adaptive/resource scores, and one-click controls to switch strategies, destroy/fix workers, and run load tests.
-
----
 
 ## ✨ Features
 
